@@ -1,0 +1,3 @@
+[submodule "matrics"]
+	path = matrics
+	url = git@github.com:i-machine-think/matrics.git
