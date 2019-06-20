@@ -28,13 +28,13 @@ class AverageMeter:
         self.avg = self.sum / self.count
 
 
-def train_one_batch(model, batch, optimizer):
+def train_one_batch(model, batch, targets, optimizer):
     """
     Train for single batch
     """
     model.train()
     optimizer.zero_grad()
-    loss, acc = model(batch)
+    loss, acc, _ = model(batch, targets)
     loss.backward()
     optimizer.step()
 
@@ -65,12 +65,12 @@ def evaluate(model, data):
     
     model.eval()
     with torch.no_grad():
-        for d in data:
-            loss, acc = model(batch)
+        for (batch, targets) in data:
+            loss, acc, sequences = model(batch, targets)
             loss_meter.update(loss.item())
             acc_meter.update(acc.item())
        
-    return loss_meter, acc_meter
+    return loss_meter, acc_meter, sequences
 
 def get_filename(params):
     """

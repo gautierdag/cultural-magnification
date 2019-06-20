@@ -1,10 +1,10 @@
 from torch.utils.data import Dataset
-
+import numpy as np
 
 class ILDataset(Dataset):
     def __init__(self, encoded_metadata, targets):
-        self.encoded_metadata = encoded_metadata
-        self.targets = targets
+        self.encoded_metadata = encoded_metadata.astype(np.float32)
+        self.targets = targets.astype(np.int64)
 
     def __getitem__(self, idx):
         meta = self.encoded_metadata[idx]
