@@ -3,8 +3,8 @@ import numpy as np
 
 class ILDataset(Dataset):
     def __init__(self, encoded_metadata, targets):
-        self.encoded_metadata = encoded_metadata.astype(np.float32)
-        self.targets = targets.astype(np.int64)
+        self.encoded_metadata = encoded_metadata
+        self.targets = targets
 
     def __getitem__(self, idx):
         meta = self.encoded_metadata[idx]

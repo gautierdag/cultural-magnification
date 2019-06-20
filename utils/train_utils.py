@@ -1,9 +1,12 @@
 import random
 import numpy as np
 import torch
+from torch.utils.data import random_split, DataLoader
 from tqdm import tqdm
 from functools import partial
 import os
+
+# Training and Evaluation helper functions
 
 
 class AverageMeter:
@@ -62,15 +65,53 @@ def evaluate(model, data):
     """
     loss_meter = AverageMeter()
     acc_meter = AverageMeter()
-    
+    sequences = []
+
     model.eval()
     with torch.no_grad():
         for (batch, targets) in data:
-            loss, acc, sequences = model(batch, targets)
+            loss, acc, seq = model(batch, targets)
             loss_meter.update(loss.item())
             acc_meter.update(acc.item())
-       
-    return loss_meter, acc_meter, sequences
+            sequences.append(seq)
+
+    return loss_meter, acc_meter, torch.cat(sequences, 0)
+
+
+def infer_new_language(model, full_dataset, batch_size=64):
+    """
+    Go over entire dataset and return the infered sequences.
+    """
+    dataloader = DataLoader(full_dataset, batch_size=batch_size)
+    loss, acc, sequences = evaluate(model, dataloader)
+    return sequences
+
+
+# Folder and Dataset functions
+
+
+def split_dataset_into_dataloaders(dataset, batch_size=64):
+    """
+    Splits a pytorch dataset into train, valid, and test dataloaders
+    """
+    # 60 % of dataset used in train
+    train_length = int(0.6 * len(dataset))
+
+    # 10 % of dataset used in validation
+    valid_length = int(0.1 * len(dataset))
+
+    # 30% used in test set
+    test_length = len(dataset) - train_length - valid_length
+
+    train_dataset, valid_dataset, test_dataset = random_split(
+        dataset, [train_length, valid_length, test_length]
+    )
+    train_dataloader = DataLoader(train_dataset, batch_size=batch_size)
+    valid_dataloader = DataLoader(valid_dataset, batch_size=batch_size)
+    test_dataloader = DataLoader(test_dataset, batch_size=batch_size)
+
+    return train_dataloader, valid_dataloader, test_dataloader
+
 
 def get_filename(params):
     """
@@ -82,10 +123,10 @@ def get_filename(params):
     name = ""
     name += "h_{}".format(params.hidden_size)
     name += "_lr_{}".format(params.lr)
-    name += "_max_len_{}".format(params.max_length)        
+    name += "_max_len_{}".format(params.max_length)
     name += "_vocab_{}".format(params.vocab_size)
     name += "_seed_{}".format(params.seed)
-    name += "_btch_size_{}".format(params.batch_size)    
+    name += "_btch_size_{}".format(params.batch_size)
     if params.debugging:
         name += "_debug"
     return name

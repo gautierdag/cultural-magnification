@@ -8,7 +8,7 @@ def generate_uniform_language_fixed_length(vocabulary_object, count: int, max_le
     """
     sentences = np.random.randint(1, vocabulary_object.vocab_size+1, size=(count, max_length+1))
     sentences[:,-1] = vocabulary_object.eos  # add eos after every sentence
-    return sentences
+    return sentences.astype(np.int64)
 
 def generate_uniform_language_varying_length(vocabulary_object, count: int, max_length: int):
     """
@@ -22,4 +22,4 @@ def generate_uniform_language_varying_length(vocabulary_object, count: int, max_
     sentences = sentences*mask
     sentences[np.arange(count), lengths] = vocabulary_object.eos # append eos after each sentence
 
-    return sentences
+    return sentences.astype(np.int64)

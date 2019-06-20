@@ -12,4 +12,4 @@ def get_encoded_metadata():
         print("Generating dataset")
         generate_shapes_dataset()
     meta = np.load(encoded_metadata_path)
-    return meta
+    return meta.astype(np.float32)
