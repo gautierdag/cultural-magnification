@@ -5,7 +5,7 @@ from random import shuffle
 
 import torch
 
-from generate_images import get_image
+from .generate_images import get_image
 
 dir_path = os.path.dirname(os.path.realpath(__file__))
 

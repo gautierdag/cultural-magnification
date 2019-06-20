@@ -46,8 +46,8 @@ class AgentVocab(object):
         self.itos = []
 
         # 0 is reserved for padding
-        self.itos.append(PAD_TOKEN)
-        self.stoi[PAD_TOKEN] = 0
+        self.itos.append(self.PAD_TOKEN)
+        self.stoi[self.PAD_TOKEN] = 0
 
         # add vocab tokens to itos and stoi
         for i in range(1, self.vocab_size+1):
