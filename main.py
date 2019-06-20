@@ -24,11 +24,6 @@ def parse_arguments(args):
         action="store_true",
     )
     parser.add_argument(
-        "--greedy",
-        help="Use argmax at prediction time instead of sampling (default: False)",
-        action="store_true",
-    )
-    parser.add_argument(
         "--iterations",
         type=int,
         default=10000,
@@ -62,21 +57,28 @@ def parse_arguments(args):
     parser.add_argument(
         "--batch-size",
         type=int,
-        default=64,
+        default=1024,
         metavar="N",
         help="input batch size for training (default: 1024)",
     )
     parser.add_argument(
         "--max-length",
         type=int,
-        default=5,
+        default=10,
         metavar="N",
         help="max sentence length allowed for communication (default: 5)",
     )
     parser.add_argument(
+        "--dataset-size",
+        type=int,
+        default=50000,
+        metavar="N",
+        help="Size of generated dataset",
+    )
+    parser.add_argument(
         "--vocab-size",
         type=int,
-        default=5,
+        default=25,
         metavar="N",
         help="Size of vocabulary (default: 5)",
     )
@@ -88,19 +90,16 @@ def parse_arguments(args):
         help="Adam learning rate (default: 1e-3)",
     )
     parser.add_argument(
-        "--model-path", type=str, default=False, metavar="S", help="Model to be loaded"
-    )
-    parser.add_argument(
         "--name",
         type=str,
         default=False,
         metavar="S",
         help="Name to append to run file name",
     )
-    parser.add_argument("--disable-print", help="Disable printing", action="store_true")
 
     args = parser.parse_args(args)
 
+    args.debugging = True
     if args.debugging:
         args.iterations = 1000
         args.max_length = 5
@@ -122,7 +121,7 @@ def main(args):
 
     # get encoded metadata, vocab and original language
     vocab = AgentVocab(args.vocab_size)
-    meta = get_encoded_metadata()
+    meta = get_encoded_metadata(size=args.dataset_size)
     language = generate_uniform_language_fixed_length(vocab, len(meta), args.max_length)
 
     metrics = {}
@@ -136,16 +135,6 @@ def main(args):
         model = LSTMModel(vocab.full_vocab_size, args.max_length)
         model_file = "{}/model{}.p".format(run_folder, g)
         torch.save(model, model_file)
-
-        print("----------------------------------------")
-        print(
-            "Model name: {} \n|V|: {}\nL: {}".format(
-                model_name, args.vocab_size, args.max_length
-            )
-        )
-        print(model)
-        pytorch_total_params = sum(p.numel() for p in model.parameters())
-        print("Total number of parameters: {}".format(pytorch_total_params))
 
         optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
         trainer = ILTrainer(model)
@@ -191,11 +180,15 @@ def main(args):
         )
         topographic_similarity = get_topographical_similarity(trainer, test_dataloader)
 
-        language = infer_new_language(trainer, dataset, batch_size=args.batch_size)
-        torch.save(language.cpu(), "{}/language_at_{}.p".format(run_folder, g))
+        new_language = infer_new_language(trainer, dataset, batch_size=args.batch_size)
+        torch.save(new_language.cpu(), "{}/language_at_{}.p".format(run_folder, g))
 
+        message_dist = message_distance(new_language, language)
+        jaccard_sim = jaccard_similarity(new_language, language)
         num_unique_messages = len(torch.unique(test_sequences, dim=0))
 
+        metrics[g]["message_dist"] = num_unique_messages
+        metrics[g]["jaccard_sim"] = num_unique_messages
         metrics[g]["num_unique_messages"] = num_unique_messages
         metrics[g]["test_loss"] = test_loss_meter.avg
         metrics[g]["test_acc"] = test_acc_meter.avg
@@ -208,6 +201,8 @@ def main(args):
 
         # dump metrics
         pickle.dump(metrics, open("{}/metrics.pkl".format(run_folder, i), "wb"))
+
+        language = new_language
 
     return metrics
 
