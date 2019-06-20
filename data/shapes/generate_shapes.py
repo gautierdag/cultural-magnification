@@ -23,17 +23,12 @@ def generate_image_dataset(size):
     return images
 
 
-def generate_shapes_dataset():
+def generate_shapes_dataset(train_size):
     """
     Generates shapes dataset and extract features
     @TODO - add parameters to extend generation and feature extraction process
     """
     np.random.seed(SEED)
-
-    folder_name = "balanced"
-
-    # From Serhii's original experiment
-    train_size = 1000
 
     # --- Generate Datasets ----
     train_data = generate_image_dataset(train_size)
@@ -42,21 +37,19 @@ def generate_shapes_dataset():
     sets = {"dataset": train_data}
 
     # --- Save Generated Datasets ----
-    folder_name = os.path.join(dir_path, folder_name)
-    if not os.path.exists(folder_name):
-        os.mkdir(folder_name)
-
     for set_name, set_data in sets.items():
         set_inputs = np.asarray([image.data[:, :, 0:3] for image in set_data])
-        np.save("{}/{}.input".format(folder_name, set_name), set_inputs)
+        np.save("{}/{}.input{}".format(dir_path, set_name, train_size), set_inputs)
 
         set_metadata = [image.metadata for image in set_data]
         pickle.dump(
-            set_metadata, open("{}/{}.metadata.p".format(folder_name, set_name), "wb")
+            set_metadata,
+            open("{}/{}.metadata{}.p".format(dir_path, set_name, train_size), "wb"),
         )
 
         oh = np.asarray([image.one_hot for image in set_data])
-        np.save("{}/{}.encoded_metadata".format(folder_name, set_name), oh)
+        np.save("{}/{}.encoded_metadata{}".format(dir_path, set_name, train_size), oh)
+
 
 if __name__ == "__main__":
-    generate_shapes_dataset()
+    generate_shapes_dataset(1000)

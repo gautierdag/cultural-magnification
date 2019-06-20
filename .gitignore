@@ -1,5 +1,7 @@
 .vscode/
 *.pckl
+*.npy
+*.p
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
@@ -107,5 +109,3 @@ venv.bak/
 .mypy_cache/
 
 runs/
-
-data/shapes/balanced/
