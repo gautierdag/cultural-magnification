@@ -114,17 +114,18 @@ def main(args):
     seed_torch(seed=args.seed)
 
     model_name = get_filename(args)
-    run_folder = "runs/" + model_name
-    writer = SummaryWriter(log_dir=run_folder + "/" + str(args.seed))
+    run_folder = "runs/" + model_name + "/" + str(args.seed)
+    writer = SummaryWriter(log_dir=run_folder)
+
     # dump arguments
-    pickle.dump(args, open("{}/experiment_params.p".format(run_folder), "wb"))
+    pickle.dump(args, open("{}/experiment_params.pkl".format(run_folder), "wb"))
 
     # get encoded metadata, vocab and original language
     vocab = AgentVocab(args.vocab_size)
     meta = get_encoded_metadata()
     language = generate_uniform_language_fixed_length(vocab, len(meta), args.max_length)
 
-    patience = 10
+    metrics = {}
     for g in range(args.generations):
         dataset = ILDataset(meta, language)
 
@@ -153,6 +154,7 @@ def main(args):
         # Train
         i = 0
         best_valid_acc = -1
+        metrics[g] = {"validation_loss": {}, "validation_acc": {}}
         while i < args.iterations:
 
             for (batch, targets) in train_dataloader:
@@ -174,11 +176,8 @@ def main(args):
                         best_valid_acc = valid_acc_meter.avg
                         torch.save(trainer.model, model_file)
 
-                    writer.add_scalars("valid_loss", {str(g): valid_loss_meter.avg}, i)
-                    writer.add_scalars("valid_acc", {str(g): valid_acc_meter.avg}, i)
-
-                    # writer.add_scalar("valid_loss", valid_loss_meter.avg, i)
-                    # writer.add_scalar("valid_acc", valid_acc_meter.avg, i)
+                    metrics[g]["validation_loss"][i] = valid_loss_meter.avg
+                    metrics[g]["validation_acc"][i] = valid_acc_meter.avg
 
                 i += 1
 
@@ -192,12 +191,25 @@ def main(args):
         )
         topographic_similarity = get_topographical_similarity(trainer, test_dataloader)
 
+        language = infer_new_language(trainer, dataset, batch_size=args.batch_size)
+        torch.save(language.cpu(), "{}/language_at_{}.p".format(run_folder, g))
+
+        num_unique_messages = len(torch.unique(test_sequences, dim=0))
+
+        metrics[g]["num_unique_messages"] = num_unique_messages
+        metrics[g]["test_loss"] = test_loss_meter.avg
+        metrics[g]["test_acc"] = test_acc_meter.avg
+        metrics[g]["topographic_similarity"] = topographic_similarity
+
+        writer.add_scalar("num_unique_messages", num_unique_messages, g)
         writer.add_scalar("test_loss", test_loss_meter.avg, g)
         writer.add_scalar("test_acc", test_acc_meter.avg, g)
         writer.add_scalar("topographic_similarity", topographic_similarity, g)
 
-        language = infer_new_language(model, dataset, batch_size=args.batch_size)
-        torch.save(language.cpu(), "{}/language_at_{}.p".format(run_folder, g))
+        # dump metrics
+        pickle.dump(metrics, open("{}/metrics.pkl".format(run_folder, i), "wb"))
+
+    return metrics
 
 
 if __name__ == "__main__":
