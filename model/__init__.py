@@ -1,2 +1,2 @@
 from .ILTrainer import ILTrainer
-from .LSTMModel import LSTMModel
+from .Models import LSTMModel, GRUModel

@@ -8,7 +8,7 @@ import torch.nn as nn
 from torch.utils.data import random_split, DataLoader
 from tensorboardX import SummaryWriter
 
-from model import ILTrainer, LSTMModel
+from model import *
 from utils import *
 from data import *
 
@@ -96,10 +96,17 @@ def parse_arguments(args):
         metavar="S",
         help="Name to append to run file name",
     )
+    parser.add_argument(
+        "--model-type",
+        default="lstm",
+        const="lstm",
+        nargs="?",
+        choices=["gru", "lstm"],
+        help="Model to use (default: %(default)s)",
+    )
 
     args = parser.parse_args(args)
 
-    args.debugging = True
     if args.debugging:
         args.iterations = 1000
         args.max_length = 5
@@ -132,7 +139,13 @@ def main(args):
             dataset, batch_size=args.batch_size
         )
 
-        model = LSTMModel(vocab.full_vocab_size, args.max_length)
+        if args.model_type == "lstm":
+            model = LSTMModel(vocab.full_vocab_size, args.max_length)
+        elif args.model_type == "gru":
+            model = GRUModel(vocab.full_vocab_size, args.max_length)
+        else:
+            return ValueError("invalid model type")
+
         model_file = "{}/model{}.p".format(run_folder, g)
         torch.save(model, model_file)
 
@@ -160,10 +173,10 @@ def main(args):
                             valid_acc_meter.avg,
                         )
                     )
-                    # Save if best model so far according to validation accuracy
-                    if valid_acc_meter.avg > best_valid_acc:
-                        best_valid_acc = valid_acc_meter.avg
-                        torch.save(trainer.model, model_file)
+                    # # Save if best model so far according to validation accuracy
+                    # if valid_acc_meter.avg > best_valid_acc:
+                    #     best_valid_acc = valid_acc_meter.avg
+                    #     torch.save(trainer.model, model_file)
 
                     metrics[g]["validation_loss"][i] = valid_loss_meter.avg
                     metrics[g]["validation_acc"][i] = valid_acc_meter.avg
@@ -183,12 +196,13 @@ def main(args):
         new_language = infer_new_language(trainer, dataset, batch_size=args.batch_size)
         torch.save(new_language.cpu(), "{}/language_at_{}.p".format(run_folder, g))
 
-        message_dist = message_distance(new_language, language)
+        total_distance, perfect_matches = message_distance(new_language, language)
         jaccard_sim = jaccard_similarity(new_language, language)
         num_unique_messages = len(torch.unique(test_sequences, dim=0))
 
-        metrics[g]["message_dist"] = num_unique_messages
-        metrics[g]["jaccard_sim"] = num_unique_messages
+        metrics[g]["total_distance"] = total_distance
+        metrics[g]["perfect_matches"] = perfect_matches
+        metrics[g]["jaccard_sim"] = jaccard_sim
         metrics[g]["num_unique_messages"] = num_unique_messages
         metrics[g]["test_loss"] = test_loss_meter.avg
         metrics[g]["test_acc"] = test_acc_meter.avg

@@ -120,12 +120,11 @@ def get_filename(params):
 
     if params.name:
         return params.name
-    name = ""
-    name += "h_{}".format(params.hidden_size)
+    name = params.model_type
+    name += "_h_{}".format(params.hidden_size)
     name += "_lr_{}".format(params.lr)
     name += "_max_len_{}".format(params.max_length)
     name += "_vocab_{}".format(params.vocab_size)
-    name += "_seed_{}".format(params.seed)
     name += "_btch_size_{}".format(params.batch_size)
     if params.debugging:
         name += "_debug"
