@@ -137,14 +137,16 @@ def main(args):
         vocab, len(meaning_space), args.max_length
     )
 
+    # full dataset
+    full_dataset = ILDataset(meaning_space, language)
+
+    # make fixed test dataset based on 20% of data
     idxs = np.arange(len(meaning_space))
     np.random.shuffle(idxs)
 
     train_size = int(0.8 * len(meaning_space))
     train_idxs, test_idxs = idxs[:train_size], idxs[train_size:]
 
-    # make fixed test dataset and full dataset
-    full_dataset = ILDataset(meaning_space, language)
     test_dataset = ILDataset(meaning_space[test_idxs], language[test_idxs])
     test_dataloader = DataLoader(test_dataset, batch_size=args.batch_size)
 
@@ -172,7 +174,6 @@ def main(args):
 
         # Train
         i = 0
-        best_valid_acc = -1
         metrics[g] = {"validation_loss": {}, "validation_acc": {}}
         while i < args.iterations:
 
@@ -190,25 +191,18 @@ def main(args):
                             valid_acc_meter.avg,
                         )
                     )
-                    # # Save if best model so far according to validation accuracy
-                    if valid_acc_meter.avg > best_valid_acc:
-                        best_valid_acc = valid_acc_meter.avg
-                        torch.save(trainer.model, model_file)
 
                     metrics[g]["validation_loss"][i] = valid_loss_meter.avg
                     metrics[g]["validation_acc"][i] = valid_acc_meter.avg
 
                 i += 1
 
-        model = torch.load(model_file)
-        trainer = ILTrainer(model)
-        trainer.to(device)
+        torch.save(trainer.model, model_file)
 
         # Evaluate best model on test data
         test_loss_meter, test_acc_meter, test_sequences = evaluate(
             trainer, test_dataloader
         )
-        topographic_similarity = get_topographical_similarity(trainer, test_dataloader)
 
         new_language = infer_new_language(
             trainer, full_dataset, batch_size=args.batch_size
@@ -217,7 +211,10 @@ def main(args):
 
         total_distance, perfect_matches = message_distance(new_language, language)
         jaccard_sim = jaccard_similarity(new_language, language)
-        num_unique_messages = len(torch.unique(test_sequences, dim=0))
+        num_unique_messages = len(torch.unique(new_language, dim=0))
+        topographic_similarity = calc_topographical_similarity(
+            meaning_space, new_language
+        )
 
         metrics[g]["total_distance"] = total_distance
         metrics[g]["perfect_matches"] = perfect_matches
