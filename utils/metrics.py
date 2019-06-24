@@ -6,27 +6,29 @@ import scipy.stats
 from sklearn.metrics import jaccard_score
 
 
-def one_hot(a):
-    ncols = a.max() + 1
+def one_hot(a, ncols):
     out = np.zeros((a.size, ncols), dtype=np.uint8)
     out[np.arange(a.size), a.ravel()] = 1
     out.shape = a.shape + (ncols,)
     return out
 
 
-def calc_topographical_similarity(compositional_representation, generated_sequences):
+def calc_topographical_similarity(
+    compositional_representation, generated_sequences, vocab_size
+):
     """
     Calculates Topological Similarity using all possible pair combinations
     Args:
         compositional_representation (np.array): one-hot encoded compositional, size N*C
         messages (torch.tensor): messages, size N*M
+        vocab_size: vocab size to encode in one hot representation
     Returns:
         topographical_similarity (float): correlation between similarity of pairs in representation/messages
     """
     dataset_length = compositional_representation.shape[0]
-    generated_sequences = one_hot(generated_sequences.cpu().numpy()).reshape(
-        dataset_length, -1
-    )
+    generated_sequences = one_hot(
+        generated_sequences.cpu().numpy(), vocab_size
+    ).reshape(dataset_length, -1)
 
     combinations = list(itertools.combinations(range(dataset_length), 2))
     sim_representation = np.zeros(len(combinations))
@@ -44,11 +46,11 @@ def calc_topographical_similarity(compositional_representation, generated_sequen
     return scipy.stats.pearsonr(sim_sequences, sim_representation)[0]
 
 
-def message_distance(messages1, messages2):
+def message_distance(messages1, messages2, vocab_size):
     """
     Args:
         message: N messages of length L from two separate languages
-
+        vocab_size: vocab size to encode in one hot representation
     """
     if hasattr(messages1, "numpy"):
         messages1 = messages1.cpu().numpy()
@@ -58,8 +60,8 @@ def message_distance(messages1, messages2):
     N, L = messages1.shape
     assert N == messages2.shape[0]
 
-    encoded_messages1 = one_hot(messages1).astype(float)
-    encoded_messages2 = one_hot(messages2).astype(float)
+    encoded_messages1 = one_hot(messages1, vocab_size).astype(float)
+    encoded_messages2 = one_hot(messages2, vocab_size).astype(float)
 
     diff = np.sum(np.abs(encoded_messages1 - encoded_messages2).reshape(N, -1), axis=1)
     perfect_matches = np.count_nonzero(diff == 0)

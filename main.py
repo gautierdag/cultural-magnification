@@ -209,11 +209,13 @@ def main(args):
         )
         torch.save(new_language.cpu(), "{}/language_at_{}.p".format(run_folder, g))
 
-        total_distance, perfect_matches = message_distance(new_language, language)
+        total_distance, perfect_matches = message_distance(
+            new_language, language, vocab.full_vocab_size
+        )
         jaccard_sim = jaccard_similarity(new_language, language)
         num_unique_messages = len(torch.unique(new_language, dim=0))
         topographic_similarity = calc_topographical_similarity(
-            meaning_space, new_language
+            meaning_space, new_language, vocab.full_vocab_size
         )
 
         metrics[g]["total_distance"] = total_distance
