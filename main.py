@@ -140,18 +140,19 @@ def main(args):
     # full dataset
     full_dataset = ILDataset(meaning_space, language)
 
-    # make fixed test dataset based on 20% of data
-    idxs = np.arange(len(meaning_space))
-    np.random.shuffle(idxs)
-
-    train_size = int(0.8 * len(meaning_space))
-    train_idxs, test_idxs = idxs[:train_size], idxs[train_size:]
-
-    test_dataset = ILDataset(meaning_space[test_idxs], language[test_idxs])
-    test_dataloader = DataLoader(test_dataset, batch_size=args.batch_size)
-
     metrics = {}
     for g in range(args.generations):
+
+        # make fixed test dataset based on 20% of data
+        idxs = np.arange(len(meaning_space))
+        np.random.shuffle(idxs)
+
+        train_size = int(0.7 * len(meaning_space))
+        train_idxs, test_idxs = idxs[:train_size], idxs[train_size:]
+
+        test_dataset = ILDataset(meaning_space[test_idxs], language[test_idxs])
+        test_dataloader = DataLoader(test_dataset, batch_size=args.batch_size)
+
         train_dataset = ILDataset(meaning_space[train_idxs], language[train_idxs])
 
         train_dataloader, valid_dataloader = split_dataset_into_dataloaders(
