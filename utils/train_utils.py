@@ -90,27 +90,20 @@ def infer_new_language(model, full_dataset, batch_size=64):
 # Folder and Dataset functions
 
 
-def split_dataset_into_dataloaders(dataset, batch_size=64):
+def split_dataset_into_dataloaders(dataset, batch_size=32):
     """
     Splits a pytorch dataset into train, valid, and test dataloaders
     """
     # 60 % of dataset used in train
-    train_length = int(0.6 * len(dataset))
+    train_length = int(0.8 * len(dataset))
 
-    # 10 % of dataset used in validation
-    valid_length = int(0.1 * len(dataset))
-
-    # 30% used in test set
-    test_length = len(dataset) - train_length - valid_length
-
-    train_dataset, valid_dataset, test_dataset = random_split(
-        dataset, [train_length, valid_length, test_length]
+    train_dataset, valid_dataset = random_split(
+        dataset, [train_length, len(dataset) - train_length]
     )
     train_dataloader = DataLoader(train_dataset, batch_size=batch_size)
     valid_dataloader = DataLoader(valid_dataset, batch_size=batch_size)
-    test_dataloader = DataLoader(test_dataset, batch_size=batch_size)
 
-    return train_dataloader, valid_dataloader, test_dataloader
+    return train_dataloader, valid_dataloader
 
 
 def get_filename(params):

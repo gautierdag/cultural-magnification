@@ -5,7 +5,7 @@ import numpy as np
 
 import torch
 import torch.nn as nn
-from torch.utils.data import random_split, DataLoader
+from torch.utils.data import Dataset, DataLoader
 from tensorboardX import SummaryWriter
 
 from model import *
@@ -26,7 +26,7 @@ def parse_arguments(args):
     parser.add_argument(
         "--iterations",
         type=int,
-        default=10000,
+        default=1000,
         metavar="N",
         help="number of batch iterations to train (default: 10k)",
     )
@@ -57,7 +57,7 @@ def parse_arguments(args):
     parser.add_argument(
         "--batch-size",
         type=int,
-        default=1024,
+        default=32,
         metavar="N",
         help="input batch size for training (default: 1024)",
     )
@@ -129,14 +129,31 @@ def main(args):
     # get encoded metadata, vocab and original language
     vocab = AgentVocab(args.vocab_size)
     meta = get_encoded_metadata(size=args.dataset_size)
-    language = generate_uniform_language_fixed_length(vocab, len(meta), args.max_length)
+
+    meaning_space = np.unique(meta, axis=0)
+    print("Meaning Space Length: {}".format(len(meaning_space)))
+
+    language = generate_uniform_language_fixed_length(
+        vocab, len(meaning_space), args.max_length
+    )
+
+    idxs = np.arange(len(meaning_space))
+    np.random.shuffle(idxs)
+
+    train_size = int(0.8 * len(meaning_space))
+    train_idxs, test_idxs = idxs[:train_size], idxs[train_size:]
+
+    # make fixed test dataset and full dataset
+    full_dataset = ILDataset(meaning_space, language)
+    test_dataset = ILDataset(meaning_space[test_idxs], language[test_idxs])
+    test_dataloader = DataLoader(test_dataset, batch_size=args.batch_size)
 
     metrics = {}
     for g in range(args.generations):
-        dataset = ILDataset(meta, language)
+        train_dataset = ILDataset(meaning_space[train_idxs], language[train_idxs])
 
-        train_dataloader, valid_dataloader, test_dataloader = split_dataset_into_dataloaders(
-            dataset, batch_size=args.batch_size
+        train_dataloader, valid_dataloader = split_dataset_into_dataloaders(
+            train_dataset, batch_size=args.batch_size
         )
 
         if args.model_type == "lstm":
@@ -174,9 +191,9 @@ def main(args):
                         )
                     )
                     # # Save if best model so far according to validation accuracy
-                    # if valid_acc_meter.avg > best_valid_acc:
-                    #     best_valid_acc = valid_acc_meter.avg
-                    #     torch.save(trainer.model, model_file)
+                    if valid_acc_meter.avg > best_valid_acc:
+                        best_valid_acc = valid_acc_meter.avg
+                        torch.save(trainer.model, model_file)
 
                     metrics[g]["validation_loss"][i] = valid_loss_meter.avg
                     metrics[g]["validation_acc"][i] = valid_acc_meter.avg
@@ -193,7 +210,9 @@ def main(args):
         )
         topographic_similarity = get_topographical_similarity(trainer, test_dataloader)
 
-        new_language = infer_new_language(trainer, dataset, batch_size=args.batch_size)
+        new_language = infer_new_language(
+            trainer, full_dataset, batch_size=args.batch_size
+        )
         torch.save(new_language.cpu(), "{}/language_at_{}.p".format(run_folder, g))
 
         total_distance, perfect_matches = message_distance(new_language, language)
