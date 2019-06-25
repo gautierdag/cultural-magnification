@@ -4,6 +4,7 @@ import torch
 from torch.utils.data import random_split, DataLoader
 from tqdm import tqdm
 from functools import partial
+import glob
 import os
 
 # Training and Evaluation helper functions
@@ -94,16 +95,21 @@ def split_dataset_into_dataloaders(dataset, batch_size=32):
     """
     Splits a pytorch dataset into train, valid, and test dataloaders
     """
-    # 60 % of dataset used in train
-    train_length = int(0.8 * len(dataset))
+    # 50 % of dataset used in train
+    train_length = int(0.5 * len(dataset))
+    # 10 % of dataset used in validation set
+    valid_length = int(0.1 * len(dataset))
+    # rest used in test set
+    test_length = len(dataset) - train_length - valid_length
 
-    train_dataset, valid_dataset = random_split(
-        dataset, [train_length, len(dataset) - train_length]
+    train_dataset, valid_dataset, test_dataset = random_split(
+        dataset, [train_length, valid_length, test_length]
     )
     train_dataloader = DataLoader(train_dataset, batch_size=batch_size)
     valid_dataloader = DataLoader(valid_dataset, batch_size=batch_size)
+    test_dataloader = DataLoader(test_dataset, batch_size=batch_size)
 
-    return train_dataloader, valid_dataloader
+    return train_dataloader, valid_dataloader, test_dataloader
 
 
 def get_filename(params):
@@ -116,6 +122,7 @@ def get_filename(params):
     name = params.model_type
     name += "_h_{}".format(params.hidden_size)
     name += "_lr_{}".format(params.lr)
+    name += "_iters_{}".format(params.iterations)
     name += "_max_len_{}".format(params.max_length)
     name += "_vocab_{}".format(params.vocab_size)
     name += "_btch_size_{}".format(params.batch_size)
@@ -141,3 +148,29 @@ def create_folder_if_not_exists(folder_name):
     """
     if not os.path.exists(folder_name):
         os.makedirs(folder_name)
+
+
+def check_language_exists(path):
+    """
+    Checks if a language file exists at the path
+    """
+    files = glob.glob(path + "/language_at_*.p")
+    return len(files) > 0
+
+
+def get_latest_language(path):
+    """
+    Gets the latest language and metrics
+    """
+    files = glob.glob(path + "/language_at_*.p")
+    last_g = 0
+    last_file = path + "/language_at_0.p"
+    for f in files:
+        g = int(f.split("_")[-1].split(".")[0])
+        if last_g < g:
+            last_file = f
+            last_g = g
+
+    language = torch.load(last_file)
+    metrics = pickle.load(open(path + "/metrics.pkl", "rb"))
+    return last_g + 1, language, metrics

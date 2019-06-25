@@ -24,9 +24,14 @@ def parse_arguments(args):
         action="store_true",
     )
     parser.add_argument(
+        "--resume",
+        help="Resume iterated learning (default: False)",
+        action="store_true",
+    )
+    parser.add_argument(
         "--iterations",
         type=int,
-        default=1000,
+        default=5000,
         metavar="N",
         help="number of batch iterations to train (default: 10k)",
     )
@@ -71,7 +76,7 @@ def parse_arguments(args):
     parser.add_argument(
         "--dataset-size",
         type=int,
-        default=50000,
+        default=10000,
         metavar="N",
         help="Size of generated dataset",
     )
@@ -129,34 +134,26 @@ def main(args):
     # get encoded metadata, vocab and original language
     vocab = AgentVocab(args.vocab_size)
     meta = get_encoded_metadata(size=args.dataset_size)
-
     meaning_space = np.unique(meta, axis=0)
     print("Meaning Space Length: {}".format(len(meaning_space)))
 
-    language = generate_uniform_language_fixed_length(
-        vocab, len(meaning_space), args.max_length
-    )
+    if args.resume and check_language_exists(run_folder):
+        g, language, metrics = get_latest_language(run_folder)
+    else:
+        g = 0
+        language = generate_uniform_language_fixed_length(
+            vocab, len(meaning_space), args.max_length
+        )
+        language = torch.Tensor(language).type(torch.long)
+        torch.save(language, "{}/initial_language.p".format(run_folder))
+        metrics = {}
 
-    # full dataset
-    full_dataset = ILDataset(meaning_space, language)
+    while g < args.generations:
 
-    metrics = {}
-    for g in range(args.generations):
+        dataset = ILDataset(meaning_space, language)
 
-        # make fixed test dataset based on 20% of data
-        idxs = np.arange(len(meaning_space))
-        np.random.shuffle(idxs)
-
-        train_size = int(0.7 * len(meaning_space))
-        train_idxs, test_idxs = idxs[:train_size], idxs[train_size:]
-
-        test_dataset = ILDataset(meaning_space[test_idxs], language[test_idxs])
-        test_dataloader = DataLoader(test_dataset, batch_size=args.batch_size)
-
-        train_dataset = ILDataset(meaning_space[train_idxs], language[train_idxs])
-
-        train_dataloader, valid_dataloader = split_dataset_into_dataloaders(
-            train_dataset, batch_size=args.batch_size
+        train_dataloader, valid_dataloader, test_dataloader = split_dataset_into_dataloaders(
+            dataset, batch_size=args.batch_size
         )
 
         if args.model_type == "lstm":
@@ -205,9 +202,7 @@ def main(args):
             trainer, test_dataloader
         )
 
-        new_language = infer_new_language(
-            trainer, full_dataset, batch_size=args.batch_size
-        )
+        new_language = infer_new_language(trainer, dataset, batch_size=args.batch_size)
         torch.save(new_language.cpu(), "{}/language_at_{}.p".format(run_folder, g))
 
         total_distance, perfect_matches = message_distance(
@@ -233,9 +228,10 @@ def main(args):
         writer.add_scalar("topographic_similarity", topographic_similarity, g)
 
         # dump metrics
-        pickle.dump(metrics, open("{}/metrics.pkl".format(run_folder, i), "wb"))
+        pickle.dump(metrics, open("{}/metrics.pkl".format(run_folder), "wb"))
 
         language = new_language
+        g += 1
 
     return metrics
 
