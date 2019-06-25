@@ -181,15 +181,6 @@ def main(args):
                     valid_loss_meter, valid_acc_meter, sequences = evaluate(
                         trainer, valid_dataloader
                     )
-                    print(
-                        "{}/{} Iterations: val loss: {}, val accuracy: {}".format(
-                            i,
-                            args.iterations,
-                            valid_loss_meter.avg,
-                            valid_acc_meter.avg,
-                        )
-                    )
-
                     metrics[g]["validation_loss"][i] = valid_loss_meter.avg
                     metrics[g]["validation_acc"][i] = valid_acc_meter.avg
 
@@ -200,6 +191,11 @@ def main(args):
         # Evaluate best model on test data
         test_loss_meter, test_acc_meter, test_sequences = evaluate(
             trainer, test_dataloader
+        )
+        print(
+            "{}/{} Generation: test loss: {}, test accuracy: {}".format(
+                g, args.generations, test_loss_meter.avg, test_acc_meter.avg
+            )
         )
 
         new_language = infer_new_language(trainer, dataset, batch_size=args.batch_size)
