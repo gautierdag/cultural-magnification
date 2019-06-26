@@ -55,9 +55,9 @@ def parse_arguments(args):
     parser.add_argument(
         "--hidden-size",
         type=int,
-        default=64,
+        default=256,
         metavar="N",
-        help="hidden size for hidden layer (default: 64)",
+        help="hidden size for hidden layer (default: 256)",
     )
     parser.add_argument(
         "--batch-size",
@@ -71,7 +71,7 @@ def parse_arguments(args):
         type=int,
         default=10,
         metavar="N",
-        help="max sentence length allowed for communication (default: 5)",
+        help="max sentence length allowed for communication (default: 10)",
     )
     parser.add_argument(
         "--dataset-size",
@@ -81,11 +81,18 @@ def parse_arguments(args):
         help="Size of generated dataset",
     )
     parser.add_argument(
+        "--train-size",
+        type=float,
+        default=0.5,
+        metavar="N",
+        help="Proportional size of the train set in IL",
+    )
+    parser.add_argument(
         "--vocab-size",
         type=int,
         default=25,
         metavar="N",
-        help="Size of vocabulary (default: 5)",
+        help="Size of vocabulary (default: 25)",
     )
     parser.add_argument(
         "--lr",
@@ -148,12 +155,11 @@ def main(args):
         torch.save(language, "{}/initial_language.p".format(run_folder))
         metrics = {}
 
+    dataset = ILDataset(meaning_space, language)
     while g < args.generations:
 
-        dataset = ILDataset(meaning_space, language)
-
         train_dataloader, valid_dataloader, test_dataloader = split_dataset_into_dataloaders(
-            dataset, batch_size=args.batch_size
+            dataset, batch_size=args.batch_size, train_size=args.train_size
         )
 
         if args.model_type == "lstm":
