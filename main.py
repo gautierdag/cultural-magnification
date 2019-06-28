@@ -45,9 +45,9 @@ def parse_arguments(args):
     parser.add_argument(
         "--log-interval",
         type=int,
-        default=200,
+        default=500,
         metavar="N",
-        help="number of iterations between logs (default: 200)",
+        help="number of iterations between logs (default: 500)",
     )
     parser.add_argument(
         "--seed", type=int, default=42, metavar="S", help="random seed (default: 42)"
@@ -122,6 +122,7 @@ def parse_arguments(args):
     if args.debugging:
         args.iterations = 1000
         args.max_length = 5
+        args.hidden_size = 64
 
     return args
 
@@ -155,8 +156,9 @@ def main(args):
         torch.save(language, "{}/initial_language.p".format(run_folder))
         metrics = {}
 
-    dataset = ILDataset(meaning_space, language)
     while g < args.generations:
+
+        dataset = ILDataset(meaning_space, language)
 
         train_dataloader, valid_dataloader, test_dataloader = split_dataset_into_dataloaders(
             dataset, batch_size=args.batch_size, train_size=args.train_size
