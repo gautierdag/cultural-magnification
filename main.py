@@ -165,9 +165,13 @@ def main(args):
         )
 
         if args.model_type == "lstm":
-            model = LSTMModel(vocab.full_vocab_size, args.max_length)
+            model = LSTMModel(
+                vocab.full_vocab_size, args.max_length, hidden_size=args.hidden_size
+            )
         elif args.model_type == "gru":
-            model = GRUModel(vocab.full_vocab_size, args.max_length)
+            model = GRUModel(
+                vocab.full_vocab_size, args.max_length, hidden_size=args.hidden_size
+            )
         else:
             return ValueError("invalid model type")
 
