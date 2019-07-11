@@ -58,7 +58,7 @@ def calc_topographical_similarity(
 
 
 def calc_jaccard_topographical_similarity(
-    compositional_representation, generated_sequences
+    compositional_representation, generated_sequences, average="macro"
 ):
     """
     Calculates Topological Similarity using all possible pair combinations
@@ -84,7 +84,7 @@ def calc_jaccard_topographical_similarity(
             compositional_representation[s1], compositional_representation[s2]
         )
         sim_sequences[i] = 1 - jaccard_score(
-            generated_sequences[s1], generated_sequences[s2], average="macro"
+            generated_sequences[s1], generated_sequences[s2], average=average
         )
 
     # check if standard deviation is not 0
@@ -158,3 +158,45 @@ def jaccard_similarity(messages1, messages2, average="macro"):
     score /= N
 
     return score
+
+
+def custom_topo(compositional_representation, generated_sequences):
+    """
+    Calculates Topological Similarity using all possible pair combinations
+    Args:
+        compositional_representation (np.array): one-hot encoded compositional, size N*C
+        messages (torch.tensor): messages, size N*M
+    Returns:
+        topographical_similarity (float): correlation between similarity of pairs in representation/messages
+    """
+    dataset_length = compositional_representation.shape[0]
+
+    combinations = list(itertools.combinations(range(dataset_length), 2))
+
+    if hasattr(generated_sequences, "numpy"):
+        generated_sequences = generated_sequences.cpu().numpy()
+
+    sim_representation = np.zeros(len(combinations))
+    sim_sequences = np.zeros(len(combinations))
+
+    for i, c in enumerate(combinations):
+        s1, s2 = c[0], c[1]
+        sim_representation[i] = scipy.spatial.distance.hamming(
+            compositional_representation[s1], compositional_representation[s2]
+        )
+        iou = len(
+            set(generated_sequences[s1]).intersection(set(generated_sequences[s2]))
+        ) / len(set(generated_sequences[s1]) + set(generated_sequences[s2]))
+
+        sim_sequences[i] = 1.0 - iou
+
+    # check if standard deviation is not 0
+    if sim_messages.std() == 0.0 or sim_representation.std() == 0.0:
+        warnings.warn("Standard deviation of 0.0 for passed parameter in custom_topo")
+        topographic_similarity = 0
+    else:
+        topographic_similarity = scipy.stats.pearsonr(
+            sim_sequences, sim_representation
+        )[0]
+
+    return topographic_similarity
