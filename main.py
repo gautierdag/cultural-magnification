@@ -221,6 +221,9 @@ def main(args):
         topographic_similarity = calc_topographical_similarity(
             meaning_space, new_language, vocab.full_vocab_size
         )
+        jd_topographic_similarity = calc_jaccard_topographical_similarity(
+            meaning_space, new_language
+        )
 
         metrics[g]["total_distance"] = total_distance
         metrics[g]["perfect_matches"] = perfect_matches
@@ -229,6 +232,7 @@ def main(args):
         metrics[g]["test_loss"] = test_loss_meter.avg
         metrics[g]["test_acc"] = test_acc_meter.avg
         metrics[g]["topographic_similarity"] = topographic_similarity
+        metrics[g]["jaccard_topographic_similarity"] = jd_topographic_similarity
 
         writer.add_scalar("num_unique_messages", num_unique_messages, g)
         writer.add_scalar("test_loss", test_loss_meter.avg, g)

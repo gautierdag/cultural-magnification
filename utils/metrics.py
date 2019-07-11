@@ -39,8 +39,41 @@ def calc_topographical_similarity(
         sim_representation[i] = scipy.spatial.distance.hamming(
             compositional_representation[s1], compositional_representation[s2]
         )
-        sim_sequences[i] = scipy.spatial.distance.cosine(
+        sim_sequences[i] = scipy.spatial.distance.hamming(
             generated_sequences[s1], generated_sequences[s2]
+        )
+
+    return scipy.stats.pearsonr(sim_sequences, sim_representation)[0]
+
+
+def calc_jaccard_topographical_similarity(
+    compositional_representation, generated_sequences
+):
+    """
+    Calculates Topological Similarity using all possible pair combinations
+    Args:
+        compositional_representation (np.array): one-hot encoded compositional, size N*C
+        messages (torch.tensor): messages, size N*M
+    Returns:
+        topographical_similarity (float): correlation between similarity of pairs in representation/messages
+    """
+    dataset_length = compositional_representation.shape[0]
+
+    combinations = list(itertools.combinations(range(dataset_length), 2))
+
+    if hasattr(generated_sequences, "numpy"):
+        generated_sequences = generated_sequences.cpu().numpy()
+
+    sim_representation = np.zeros(len(combinations))
+    sim_sequences = np.zeros(len(combinations))
+
+    for i, c in enumerate(combinations):
+        s1, s2 = c[0], c[1]
+        sim_representation[i] = scipy.spatial.distance.hamming(
+            compositional_representation[s1], compositional_representation[s2]
+        )
+        sim_sequences[i] = 1 - jaccard_score(
+            generated_sequences[s1], generated_sequences[s2], average="macro"
         )
 
     return scipy.stats.pearsonr(sim_sequences, sim_representation)[0]
