@@ -44,7 +44,7 @@ def calc_topographical_similarity(
             generated_sequences[s1], generated_sequences[s2]
         )
     # check if standard deviation is not 0
-    if sim_messages.std() == 0.0 or sim_representation.std() == 0.0:
+    if sim_sequences.std() == 0.0 or sim_representation.std() == 0.0:
         warnings.warn(
             "Standard deviation of 0.0 for passed parameter in compositionality_metrics"
         )
@@ -88,7 +88,7 @@ def calc_jaccard_topographical_similarity(
         )
 
     # check if standard deviation is not 0
-    if sim_messages.std() == 0.0 or sim_representation.std() == 0.0:
+    if sim_sequences.std() == 0.0 or sim_representation.std() == 0.0:
         warnings.warn(
             "Standard deviation of 0.0 for passed parameter in compositionality_metrics"
         )
@@ -191,7 +191,7 @@ def custom_topo(compositional_representation, generated_sequences):
         sim_sequences[i] = 1.0 - iou
 
     # check if standard deviation is not 0
-    if sim_messages.std() == 0.0 or sim_representation.std() == 0.0:
+    if sim_sequences.std() == 0.0 or sim_representation.std() == 0.0:
         warnings.warn("Standard deviation of 0.0 for passed parameter in custom_topo")
         topographic_similarity = 0
     else:
