@@ -88,14 +88,9 @@ if __name__ == "__main__":
             continue
 
         languages = glob.glob(folder + "language_at_*")
-        # p = Pool(4)
-        # jaccard_topographics = p.map(process_language, languages)
-        jaccard_topographics = list(range(len(languages)))
-        for language, topo in zip(languages, jaccard_topographics):
-
-            l = torch.load(open(language, "rb"))
-            complement_topo(meaning_space, l)
-
+        p = Pool(4)
+        custom_topos = p.map(process_language, languages)
+        for language, topo in zip(languages, custom_topos):
             generation = int(language.split("_")[-1].split(".")[0])
             metrics[run_name][seed][generation]["complement_topo"] = topo
 
