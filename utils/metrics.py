@@ -186,7 +186,7 @@ def custom_topo(compositional_representation, generated_sequences):
         )
         iou = len(
             set(generated_sequences[s1]).intersection(set(generated_sequences[s2]))
-        ) / len(set(generated_sequences[s1]) + set(generated_sequences[s2]))
+        ) / len(set(generated_sequences[s1]).union(set(generated_sequences[s2])))
 
         sim_sequences[i] = 1.0 - iou
 
