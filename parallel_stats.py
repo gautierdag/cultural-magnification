@@ -22,7 +22,6 @@ def get_run_name(n: str):
 
 
 def process_language(language_path: str):
-    generation = int(language_path.split("_")[-1].split(".")[0])
     l = torch.load(open(language_path, "rb"))
     return calc_jaccard_topographical_similarity(meaning_space, l)
 
@@ -46,6 +45,7 @@ if __name__ == "__main__":
         p = Pool(5)
         jaccard_topographics = p.map(process_language, languages)
         for language, topo in zip(languages, jaccard_topographics):
+            generation = int(language.split("_")[-1].split(".")[0])
             metrics[run_name][seed][generation]["jaccard_topographic"] = topo
 
         # update pickle
