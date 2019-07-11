@@ -11,6 +11,7 @@ import itertools
 import numpy as np
 import scipy.spatial
 import scipy.stats
+import warnings
 
 meta = get_encoded_metadata(size=10000)
 meaning_space = np.unique(meta, axis=0)
