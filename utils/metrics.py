@@ -4,6 +4,7 @@ import numpy as np
 import scipy.spatial
 import scipy.stats
 from sklearn.metrics import jaccard_score
+import warnings
 
 
 def one_hot(a, ncols):
@@ -42,8 +43,18 @@ def calc_topographical_similarity(
         sim_sequences[i] = scipy.spatial.distance.hamming(
             generated_sequences[s1], generated_sequences[s2]
         )
+    # check if standard deviation is not 0
+    if sim_messages.std() == 0.0 or sim_representation.std() == 0.0:
+        warnings.warn(
+            "Standard deviation of 0.0 for passed parameter in compositionality_metrics"
+        )
+        topographic_similarity = 0
+    else:
+        topographic_similarity = scipy.stats.pearsonr(
+            sim_sequences, sim_representation
+        )[0]
 
-    return scipy.stats.pearsonr(sim_sequences, sim_representation)[0]
+    return topographic_similarity
 
 
 def calc_jaccard_topographical_similarity(
@@ -76,7 +87,18 @@ def calc_jaccard_topographical_similarity(
             generated_sequences[s1], generated_sequences[s2], average="macro"
         )
 
-    return scipy.stats.pearsonr(sim_sequences, sim_representation)[0]
+    # check if standard deviation is not 0
+    if sim_messages.std() == 0.0 or sim_representation.std() == 0.0:
+        warnings.warn(
+            "Standard deviation of 0.0 for passed parameter in compositionality_metrics"
+        )
+        topographic_similarity = 0
+    else:
+        topographic_similarity = scipy.stats.pearsonr(
+            sim_sequences, sim_representation
+        )[0]
+
+    return topographic_similarity
 
 
 def message_distance(messages1, messages2, vocab_size):
