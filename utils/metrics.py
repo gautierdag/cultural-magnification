@@ -95,7 +95,7 @@ def calculate_similarity(set1, set2, method="hamming", convert_oh=True, vocab_si
 
     if convert_oh:
         set1 = one_hot(set1, vocab_size).reshape(dataset_length, -1)
-        set2 = one_hot(set1, vocab_size).reshape(dataset_length, -1)
+        set2 = one_hot(set2, vocab_size).reshape(dataset_length, -1)
 
     combinations = list(itertools.combinations(range(dataset_length), 2))
 
