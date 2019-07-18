@@ -16,7 +16,7 @@ class ILTrainer(nn.Module):
         batch = batch.to(device)
         targets = targets.to(device)
 
-        predictions = self.model(batch)
+        predictions, hidden_states = self.model(batch)
         loss = self.criterion(
             predictions.reshape(-1, predictions.shape[2]), targets.reshape(-1)
         )
@@ -27,4 +27,4 @@ class ILTrainer(nn.Module):
             batch_size * seq_length
         )
 
-        return loss, torch.mean(accuracy), sequences
+        return loss, torch.mean(accuracy), sequences, hidden_states

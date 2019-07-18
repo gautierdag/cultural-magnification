@@ -33,13 +33,15 @@ class LSTMModel(nn.Module):
 
         state = (h, c)
 
+        hidden_states = []
         for i in range(self.max_length):
             state = self.rnn(x, state)
             h, _ = state
             outputs.append(self.linear_out(h))
+            hidden_states.append(h)
 
         outputs = F.softmax(torch.stack(outputs, dim=1), dim=2)
-        return outputs
+        return outputs, torch.stack(hidden_states, dim=1).reshape(batch_size, -1)
 
 
 class GRUModel(nn.Module):
@@ -67,9 +69,11 @@ class GRUModel(nn.Module):
 
         h = torch.zeros([batch_size, self.hidden_size], device=device)
 
+        hidden_states = []
         for i in range(self.max_length):
             h = self.rnn(x, h)
             outputs.append(self.linear_out(h))
+            hidden_states.append(h)
 
         outputs = F.softmax(torch.stack(outputs, dim=1), dim=2)
-        return outputs
+        return outputs, torch.stack(hidden_states, dim=1).reshape(batch_size, -1)

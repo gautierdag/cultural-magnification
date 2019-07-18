@@ -156,6 +156,8 @@ def main(args):
         torch.save(language, "{}/initial_language.p".format(run_folder))
         metrics = {}
 
+    hidden_states = None
+
     while g < args.generations:
 
         dataset = ILDataset(meaning_space, language)
@@ -190,7 +192,7 @@ def main(args):
             for (batch, targets) in train_dataloader:
                 loss, acc = train_one_batch(trainer, batch, targets, optimizer)
                 if i % args.log_interval == 0:
-                    valid_loss_meter, valid_acc_meter, sequences = evaluate(
+                    valid_loss_meter, valid_acc_meter, sequences, _ = evaluate(
                         trainer, valid_dataloader
                     )
                     metrics[g]["validation_loss"][i] = valid_loss_meter.avg
@@ -201,7 +203,7 @@ def main(args):
         torch.save(trainer.model, model_file)
 
         # Evaluate best model on test data
-        test_loss_meter, test_acc_meter, test_sequences = evaluate(
+        test_loss_meter, test_acc_meter, test_sequences, _ = evaluate(
             trainer, test_dataloader
         )
         print(
@@ -210,20 +212,19 @@ def main(args):
             )
         )
 
-        new_language = infer_new_language(trainer, dataset, batch_size=args.batch_size)
+        new_language, new_hidden_states = infer_new_language(
+            trainer, dataset, batch_size=args.batch_size
+        )
         torch.save(new_language.cpu(), "{}/language_at_{}.p".format(run_folder, g))
+        torch.save(
+            new_hidden_states.cpu(), "{}/hidden_states_at_{}.p".format(run_folder, g)
+        )
 
         total_distance, perfect_matches = message_distance(
             new_language, language, vocab.full_vocab_size
         )
         jaccard_sim = jaccard_similarity(new_language, language)
         num_unique_messages = len(torch.unique(new_language, dim=0))
-        topographic_similarity = calc_topographical_similarity(
-            meaning_space, new_language, vocab.full_vocab_size
-        )
-        jd_topographic_similarity = calc_jaccard_topographical_similarity(
-            meaning_space, new_language
-        )
 
         metrics[g]["total_distance"] = total_distance
         metrics[g]["perfect_matches"] = perfect_matches
@@ -231,8 +232,37 @@ def main(args):
         metrics[g]["num_unique_messages"] = num_unique_messages
         metrics[g]["test_loss"] = test_loss_meter.avg
         metrics[g]["test_acc"] = test_acc_meter.avg
+
+        # calculate topographic and rsa
+        topographic_similarity, rsa_m_h, rsa_i_h = calc_representational_similarities(
+            meaning_space,
+            new_language,
+            vocab.full_vocab_size,
+            hidden_representation=new_hidden_states,
+        )
+
         metrics[g]["topographic_similarity"] = topographic_similarity
-        metrics[g]["jaccard_topographic_similarity"] = jd_topographic_similarity
+        metrics[g]["rsa_m_h"] = rsa_m_h
+        metrics[g]["rsa_i_h"] = rsa_i_h
+
+        # calculate cross generational rsa for message to message and hidden to hidden
+        rsa_m_m = calculate_similarity(
+            language,
+            new_language,
+            method="hamming",
+            convert_oh=True,
+            vocab_size=vocab.full_vocab_size,
+        )
+
+        if hidden_states is None:
+            rsa_h_h = 0.0
+        else:
+            rsa_h_h = calculate_similarity(
+                hidden_states, new_hidden_states, method="cosine", convert_oh=False
+            )
+
+        metrics[g]["rsa_m_m"] = rsa_m_m
+        metrics[g]["rsa_h_h"] = rsa_h_h
 
         writer.add_scalar("num_unique_messages", num_unique_messages, g)
         writer.add_scalar("test_loss", test_loss_meter.avg, g)
@@ -243,6 +273,7 @@ def main(args):
         pickle.dump(metrics, open("{}/metrics.pkl".format(run_folder), "wb"))
 
         language = new_language
+        hidden_states = new_hidden_states
         g += 1
 
     return metrics

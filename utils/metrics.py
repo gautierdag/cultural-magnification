@@ -14,11 +14,14 @@ def one_hot(a, ncols):
     return out
 
 
-def calc_topographical_similarity(
-    compositional_representation, generated_sequences, vocab_size
+def calc_representational_similarities(
+    compositional_representation,
+    generated_sequences,
+    vocab_size,
+    hidden_representation=None,
 ):
     """
-    Calculates Topological Similarity using all possible pair combinations
+    Calculates Topological Similarity and RSA using all possible pair combinations
     Args:
         compositional_representation (np.array): one-hot encoded compositional, size N*C
         messages (torch.tensor): messages, size N*M
@@ -31,30 +34,95 @@ def calc_topographical_similarity(
         generated_sequences.cpu().numpy(), vocab_size
     ).reshape(dataset_length, -1)
 
+    skip_rsa = hidden_representation is None  # skip RSA
+    if not skip_rsa:
+        hidden_representation = hidden_representation.cpu().numpy()
+
     combinations = list(itertools.combinations(range(dataset_length), 2))
     sim_representation = np.zeros(len(combinations))
     sim_sequences = np.zeros(len(combinations))
+    sim_hidden = np.zeros(len(combinations))
 
     for i, c in enumerate(combinations):
         s1, s2 = c[0], c[1]
+
         sim_representation[i] = scipy.spatial.distance.hamming(
             compositional_representation[s1], compositional_representation[s2]
         )
+
         sim_sequences[i] = scipy.spatial.distance.hamming(
             generated_sequences[s1], generated_sequences[s2]
         )
-    # check if standard deviation is not 0
-    if sim_sequences.std() == 0.0 or sim_representation.std() == 0.0:
-        warnings.warn(
-            "Standard deviation of 0.0 for passed parameter in compositionality_metrics"
-        )
-        topographic_similarity = 0
-    else:
-        topographic_similarity = scipy.stats.pearsonr(
-            sim_sequences, sim_representation
-        )[0]
+        if not skip_rsa:
+            sim_hidden[i] = scipy.spatial.distance.cosine(
+                hidden_representation[s1], hidden_representation[s2]
+            )
 
-    return topographic_similarity
+    topographic_similarity = scipy.stats.pearsonr(sim_sequences, sim_representation)[0]
+
+    if not skip_rsa:
+        rsa_m_h = scipy.stats.pearsonr(sim_sequences, sim_hidden)[0]
+        rsa_i_h = scipy.stats.pearsonr(sim_representation, sim_hidden)[0]
+
+    # check if standard deviation is not 0
+    if sim_sequences.std() == 0.0:
+        warnings.warn("Standard deviation of 0.0 for generated messages")
+        topographic_similarity = 0
+        rsa_m_h = 0
+    if sim_representation.std() == 0.0:
+        warnings.warn("Standard deviation of 0.0 for compositional representation")
+        topographic_similarity = 0
+        rsa_i_h = 0
+
+    if sim_sequences.std() == 0.0 or skip_rsa:
+        rsa_m_h = 0
+        rsa_i_h = 0
+
+    return (topographic_similarity, rsa_m_h, rsa_i_h)
+
+
+def calculate_similarity(set1, set2, method="hamming", convert_oh=True, vocab_size=28):
+    """
+    Calculates Similarity between pairs and returns pearson R
+    convert_oh: whether to convert to one hot
+    """
+    dataset_length = set1.shape[0]
+
+    if hasattr(set1, "numpy"):
+        set1 = set1.cpu().numpy()
+    if hasattr(set2, "numpy"):
+        set2 = set2.cpu().numpy()
+
+    if convert_oh:
+        set1 = one_hot(set1, vocab_size).reshape(dataset_length, -1)
+        set2 = one_hot(set1, vocab_size).reshape(dataset_length, -1)
+
+    combinations = list(itertools.combinations(range(dataset_length), 2))
+
+    sim_set1 = np.zeros(len(combinations))
+    sim_set2 = np.zeros(len(combinations))
+
+    if method == "hamming":
+        distance = scipy.spatial.distance.hamming
+    elif method == "cosine":
+        distance = scipy.spatial.distance.cosine
+    else:
+        return ValueError("unknown distance function")
+
+    for i, c in enumerate(combinations):
+        s1, s2 = c[0], c[1]
+
+        sim_set1[i] = distance(set1[s1], set1[s2])
+        sim_set2[i] = distance(set2[s1], set2[s2])
+
+    sim = scipy.stats.pearsonr(sim_set1, sim_set2)[0]
+
+    # check if standard deviation is not 0
+    if sim_set1.std() == 0.0 or sim_set2.std() == 0.0:
+        warnings.warn("Standard deviation of 0.0")
+        sim = 0
+
+    return sim
 
 
 def calc_jaccard_topographical_similarity(

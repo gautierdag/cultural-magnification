@@ -39,7 +39,7 @@ def train_one_batch(model, batch, targets, optimizer):
     """
     model.train()
     optimizer.zero_grad()
-    loss, acc, _ = model(batch, targets)
+    loss, acc, _, _ = model(batch, targets)
     loss.backward()
     optimizer.step()
 
@@ -68,16 +68,18 @@ def evaluate(model, data):
     loss_meter = AverageMeter()
     acc_meter = AverageMeter()
     sequences = []
+    hidden_states = []
 
     model.eval()
     with torch.no_grad():
         for (batch, targets) in data:
-            loss, acc, seq = model(batch, targets)
+            loss, acc, seq, hid = model(batch, targets)
             loss_meter.update(loss.item())
             acc_meter.update(acc.item())
             sequences.append(seq)
+            hidden_states.append(hid)
 
-    return loss_meter, acc_meter, torch.cat(sequences, 0)
+    return loss_meter, acc_meter, torch.cat(sequences, 0), torch.cat(hidden_states, 0)
 
 
 def infer_new_language(model, full_dataset, batch_size=64):
@@ -85,8 +87,8 @@ def infer_new_language(model, full_dataset, batch_size=64):
     Go over entire dataset and return the infered sequences.
     """
     dataloader = DataLoader(full_dataset, batch_size=batch_size)
-    loss, acc, sequences = evaluate(model, dataloader)
-    return sequences
+    loss, acc, sequences, hidden_states = evaluate(model, dataloader)
+    return sequences, hidden_states
 
 
 # Folder and Dataset functions
