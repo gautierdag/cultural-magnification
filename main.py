@@ -1,68 +1,53 @@
-import pickle
 import argparse
 import sys
-import numpy as np
-
 import torch
-import torch.nn as nn
-from torch.utils.data import Dataset, DataLoader
-from tensorboardX import SummaryWriter
+import os
+import time
 
-from model import *
-from utils import *
-from data import *
+from polybius.helpers.game_helper import get_trainer, get_training_data, get_meta_data
+from polybius.helpers.train_helper import TrainHelper
+from polybius.helpers.file_helper import FileHelper
+from polybius.utils.logger import Logger
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+from polybius.models import Sender, Receiver
+from polybius.data import AgentVocab
+
+from utils import get_filename
 
 
 def parse_arguments(args):
     # Training settings
-    parser = argparse.ArgumentParser(description="Shapes Iterated Learning Setup")
-    parser.add_argument(
-        "--debugging",
-        help="Enable debugging mode (default: False)",
-        action="store_true",
-    )
-    parser.add_argument(
-        "--resume",
-        help="Resume iterated learning (default: False)",
-        action="store_true",
+    parser = argparse.ArgumentParser(
+        description="Training Sender/Receiver Agent on a task"
     )
     parser.add_argument(
         "--iterations",
         type=int,
-        default=5000,
+        default=10000,
         metavar="N",
         help="number of batch iterations to train (default: 10k)",
-    )
-    parser.add_argument(
-        "--generations",
-        type=int,
-        default=10,
-        metavar="N",
-        help="number of generations to iterate over (default: 10)",
-    )
-    parser.add_argument(
-        "--log-interval",
-        type=int,
-        default=500,
-        metavar="N",
-        help="number of iterations between logs (default: 500)",
     )
     parser.add_argument(
         "--seed", type=int, default=42, metavar="S", help="random seed (default: 42)"
     )
     parser.add_argument(
+        "--embedding-size",
+        type=int,
+        default=64,
+        metavar="N",
+        help="embedding size for embedding layer (default: 64)",
+    )
+    parser.add_argument(
         "--hidden-size",
         type=int,
-        default=256,
+        default=64,
         metavar="N",
-        help="hidden size for hidden layer (default: 256)",
+        help="hidden size for hidden layer (default: 64)",
     )
     parser.add_argument(
         "--batch-size",
         type=int,
-        default=32,
+        default=1024,
         metavar="N",
         help="input batch size for training (default: 1024)",
     )
@@ -72,20 +57,6 @@ def parse_arguments(args):
         default=10,
         metavar="N",
         help="max sentence length allowed for communication (default: 10)",
-    )
-    parser.add_argument(
-        "--dataset-size",
-        type=int,
-        default=10000,
-        metavar="N",
-        help="Size of generated dataset",
-    )
-    parser.add_argument(
-        "--train-size",
-        type=float,
-        default=0.5,
-        metavar="N",
-        help="Proportional size of the train set in IL",
     )
     parser.add_argument(
         "--vocab-size",
@@ -101,6 +72,34 @@ def parse_arguments(args):
         metavar="N",
         help="Adam learning rate (default: 1e-3)",
     )
+
+    # Arguments not specific to the training process itself
+    parser.add_argument(
+        "--debugging",
+        help="Enable debugging mode (default: False)",
+        action="store_true",
+    )
+    parser.add_argument(
+        "--log-interval",
+        type=int,
+        default=200,
+        metavar="N",
+        help="number of iterations between logs (default: 200)",
+    )
+    parser.add_argument(
+        "--sender-path",
+        type=str,
+        default=False,
+        metavar="S",
+        help="Sender to be loaded",
+    )
+    parser.add_argument(
+        "--receiver-path",
+        type=str,
+        default=False,
+        metavar="S",
+        help="Receiver to be loaded",
+    )
     parser.add_argument(
         "--name",
         type=str,
@@ -109,12 +108,28 @@ def parse_arguments(args):
         help="Name to append to run file name",
     )
     parser.add_argument(
-        "--model-type",
-        default="lstm",
-        const="lstm",
-        nargs="?",
-        choices=["gru", "lstm"],
-        help="Model to use (default: %(default)s)",
+        "--folder",
+        type=str,
+        default=False,
+        metavar="S",
+        help="Additional folder within runs/",
+    )
+    parser.add_argument("--disable-print", help="Disable printing", action="store_true")
+    parser.add_argument(
+        "--patience",
+        type=int,
+        default=10,
+        help="Amount of epochs to check for not improved validation score before early stopping",
+    )
+    parser.add_argument(
+        "--test-mode",
+        help="Only run the saved model on the test set",
+        action="store_true",
+    )
+    parser.add_argument(
+        "--resume-training",
+        help="Resume the training from the saved model state",
+        action="store_true",
     )
 
     args = parser.parse_args(args)
@@ -122,162 +137,213 @@ def parse_arguments(args):
     if args.debugging:
         args.iterations = 1000
         args.max_length = 5
-        args.hidden_size = 64
+        args.batch_size = 16
 
     return args
 
 
-def main(args):
+def save_model_state(
+    model, checkpoint_path: str, epoch: int, iteration: int, best_score: int
+):
+    checkpoint_state = {}
+    if model.sender:
+        checkpoint_state["sender"] = model.sender.state_dict()
+    if model.receiver:
+        checkpoint_state["receiver"] = model.receiver.state_dict()
+    if epoch:
+        checkpoint_state["epoch"] = epoch
+    if iteration:
+        checkpoint_state["iteration"] = iteration
+    if best_score:
+        checkpoint_state["best_score"] = best_score
 
+    torch.save(checkpoint_state, checkpoint_path)
+
+
+def load_model_state(model, model_path):
+    if not os.path.isfile(model_path):
+        raise Exception(f'Model not found at "{model_path}"')
+    checkpoint = torch.load(model_path)
+    if "sender" in checkpoint.keys() and checkpoint["sender"]:
+        model.sender.load_state_dict(checkpoint["sender"])
+    if "receiver" in checkpoint.keys() and checkpoint["receiver"]:
+        model.receiver.load_state_dict(checkpoint["receiver"])
+    best_score = -1.0
+    if "best_score" in checkpoint.keys() and checkpoint["best_score"]:
+        best_score = checkpoint["best_score"]
+    epoch = 0
+    if "epoch" in checkpoint.keys() and checkpoint["epoch"]:
+        epoch = checkpoint["epoch"]
+    iteration = 0
+    if "iteration" in checkpoint.keys() and checkpoint["iteration"]:
+        iteration = checkpoint["iteration"]
+    return epoch, iteration, best_score
+
+
+def baseline(args):
     args = parse_arguments(args)
-    seed_torch(seed=args.seed)
+    args.dataset_type = "meta"
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    file_helper = FileHelper()
+    train_helper = TrainHelper(device)
+    train_helper.seed_torch(seed=args.seed)
 
     model_name = get_filename(args)
-    run_folder = "runs/" + model_name + "/" + str(args.seed)
-    writer = SummaryWriter(log_dir=run_folder)
+    run_folder = file_helper.get_run_folder(args.folder, model_name)
 
-    # dump arguments
-    pickle.dump(args, open("{}/experiment_params.pkl".format(run_folder), "wb"))
+    logger = Logger(run_folder, print_logs=(not args.disable_print))
+    logger.log_args(args)
 
-    # get encoded metadata, vocab and original language
     vocab = AgentVocab(args.vocab_size)
-    meta = get_encoded_metadata(size=args.dataset_size)
-    meaning_space = np.unique(meta, axis=0)
-    print("Meaning Space Length: {}".format(len(meaning_space)))
 
-    if args.resume and check_language_exists(run_folder):
-        g, language, metrics = get_latest_language(run_folder)
-    else:
-        g = 0
-        language = generate_uniform_language_fixed_length(
-            vocab, len(meaning_space), args.max_length
-        )
-        language = torch.Tensor(language).type(torch.long)
-        torch.save(language, "{}/initial_language.p".format(run_folder))
-        metrics = {}
+    # get sender and receiver models and save them
+    sender = Sender(
+        args.vocab_size,
+        args.max_length,
+        vocab.bound_idx,
+        device,
+        embedding_size=args.embedding_size,
+        hidden_size=args.hidden_size,
+        greedy=True,
+        gumbel_softmax=True,
+        input_size=15,
+    )
 
-    hidden_states = None
+    receiver = Receiver(
+        args.vocab_size,
+        device,
+        embedding_size=args.embedding_size,
+        hidden_size=args.hidden_size,
+        output_size=15,
+    )
 
-    while g < args.generations:
+    sender_file = file_helper.get_sender_path(run_folder)
+    receiver_file = file_helper.get_receiver_path(run_folder)
 
-        dataset = ILDataset(meaning_space, language)
+    if receiver:
+        torch.save(receiver, receiver_file)
 
-        train_dataloader, valid_dataloader, test_dataloader = split_dataset_into_dataloaders(
-            dataset, batch_size=args.batch_size, train_size=args.train_size
-        )
+    model = get_trainer(sender, device, "meta", receiver=receiver)
 
-        if args.model_type == "lstm":
-            model = LSTMModel(
-                vocab.full_vocab_size, args.max_length, hidden_size=args.hidden_size
-            )
-        elif args.model_type == "gru":
-            model = GRUModel(
-                vocab.full_vocab_size, args.max_length, hidden_size=args.hidden_size
-            )
-        else:
-            return ValueError("invalid model type")
+    model_path = file_helper.create_unique_model_path(model_name)
 
-        model_file = "{}/model{}.p".format(run_folder, g)
-        torch.save(model, model_file)
+    best_accuracy = -1.0
+    epoch = 0
+    iteration = 0
 
-        optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
-        trainer = ILTrainer(model)
-        trainer.to(device)
-
-        # Train
-        i = 0
-        metrics[g] = {"validation_loss": {}, "validation_acc": {}}
-        while i < args.iterations:
-
-            for (batch, targets) in train_dataloader:
-                loss, acc = train_one_batch(trainer, batch, targets, optimizer)
-                if i % args.log_interval == 0:
-                    valid_loss_meter, valid_acc_meter, sequences, _ = evaluate(
-                        trainer, valid_dataloader
-                    )
-                    metrics[g]["validation_loss"][i] = valid_loss_meter.avg
-                    metrics[g]["validation_acc"][i] = valid_acc_meter.avg
-
-                i += 1
-
-        torch.save(trainer.model, model_file)
-
-        # Evaluate best model on test data
-        test_loss_meter, test_acc_meter, test_sequences, _ = evaluate(
-            trainer, test_dataloader
-        )
+    if args.resume_training or args.test_mode:
+        epoch, iteration, best_accuracy = load_model_state(model, model_path)
         print(
-            "{}/{} Generation: test loss: {}, test accuracy: {}".format(
-                g, args.generations, test_loss_meter.avg, test_acc_meter.avg
+            f"Loaded model. Resuming from - epoch: {epoch} | iteration: {iteration} | best accuracy: {best_accuracy}"
+        )
+
+    if not os.path.exists(file_helper.model_checkpoint_path):
+        print("No checkpoint exists. Saving model...\r")
+        torch.save(model.visual_module, file_helper.model_checkpoint_path)
+        print("No checkpoint exists. Saving model...Done")
+
+    train_data, valid_data, test_data, valid_meta_data, _ = get_training_data(
+        device=device,
+        batch_size=args.batch_size,
+        k=3,
+        debugging=args.debugging,
+        dataset_type="meta",
+    )
+
+    train_meta_data, valid_meta_data, test_meta_data = get_meta_data()
+
+    pytorch_total_params = sum(p.numel() for p in model.parameters())
+
+    if not args.disable_print:
+        # Print info
+        print("----------------------------------------")
+        print(
+            "Model name: {} \n|V|: {}\nL: {}".format(
+                model_name, args.vocab_size, args.max_length
             )
         )
+        print(sender)
+        if receiver:
+            print(receiver)
 
-        new_language, new_hidden_states = infer_new_language(
-            trainer, dataset, batch_size=args.batch_size
-        )
-        torch.save(new_language.cpu(), "{}/language_at_{}.p".format(run_folder, g))
-        torch.save(
-            new_hidden_states.cpu(), "{}/hidden_states_at_{}.p".format(run_folder, g)
-        )
+        print("Total number of parameters: {}".format(pytorch_total_params))
 
-        total_distance, perfect_matches = message_distance(
-            new_language, language, vocab.full_vocab_size
-        )
-        jaccard_sim = jaccard_similarity(new_language, language)
-        num_unique_messages = len(torch.unique(new_language, dim=0))
+    model.to(device)
 
-        metrics[g]["total_distance"] = total_distance
-        metrics[g]["perfect_matches"] = perfect_matches
-        metrics[g]["jaccard_sim"] = jaccard_sim
-        metrics[g]["num_unique_messages"] = num_unique_messages
-        metrics[g]["test_loss"] = test_loss_meter.avg
-        metrics[g]["test_acc"] = test_acc_meter.avg
+    optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
 
-        # calculate topographic and rsa
-        topographic_similarity, rsa_m_h, rsa_i_h = calc_representational_similarities(
-            meaning_space,
-            new_language,
-            vocab.full_vocab_size,
-            hidden_representation=new_hidden_states,
+    # Train
+    current_patience = args.patience
+    best_accuracy = -1.0
+    converged = False
+
+    start_time = time.time()
+
+    if args.test_mode:
+        test_loss_meter, test_acc_meter, _ = train_helper.evaluate(
+            model, test_data, test_meta_data, device, args.rl
         )
 
-        metrics[g]["topographic_similarity"] = topographic_similarity
-        metrics[g]["rsa_m_h"] = rsa_m_h
-        metrics[g]["rsa_i_h"] = rsa_i_h
+        average_test_accuracy = test_acc_meter.avg
+        average_test_loss = test_loss_meter.avg
 
-        # calculate cross generational rsa for message to message and hidden to hidden
-        rsa_m_m = calculate_similarity(
-            language,
-            new_language,
-            method="hamming",
-            convert_oh=True,
-            vocab_size=vocab.full_vocab_size,
+        print(
+            f"TEST results: loss: {average_test_loss} | accuracy: {average_test_accuracy}"
         )
+        return
 
-        if hidden_states is None:
-            rsa_h_h = 0.0
-        else:
-            rsa_h_h = calculate_similarity(
-                hidden_states, new_hidden_states, method="cosine", convert_oh=False
+    while iteration < args.iterations:
+        for train_batch in train_data:
+            print(f"{iteration}/{args.iterations}       \r", end="")
+
+            # !!! This is the complete training procedure. Rest is only logging!
+            _, _ = train_helper.train_one_batch(
+                model, train_batch, optimizer, train_meta_data, device
             )
 
-        metrics[g]["rsa_m_m"] = rsa_m_m
-        metrics[g]["rsa_h_h"] = rsa_h_h
+            if iteration % args.log_interval == 0:
+                valid_loss_meter, valid_acc_meter, _, = train_helper.evaluate(
+                    model, valid_data, valid_meta_data, device, False
+                )
 
-        writer.add_scalar("num_unique_messages", num_unique_messages, g)
-        writer.add_scalar("test_loss", test_loss_meter.avg, g)
-        writer.add_scalar("test_acc", test_acc_meter.avg, g)
-        writer.add_scalar("topographic_similarity", topographic_similarity, g)
+                new_best = False
+                average_valid_accuracy = valid_acc_meter.avg
 
-        # dump metrics
-        pickle.dump(metrics, open("{}/metrics.pkl".format(run_folder), "wb"))
+                if (
+                    average_valid_accuracy < best_accuracy
+                ):  # No new best found. May lead to early stopping
+                    current_patience -= 1
 
-        language = new_language
-        hidden_states = new_hidden_states
-        g += 1
+                    if current_patience <= 0:
+                        print("Model has converged. Stopping training...")
+                        converged = True
+                        break
+                else:  # new best found. Is saved.
+                    new_best = True
+                    best_accuracy = average_valid_accuracy
+                    current_patience = args.patience
+                    save_model_state(model, model_path, epoch, iteration, best_accuracy)
 
-    return metrics
+                metrics = {
+                    "loss": valid_loss_meter.avg,
+                    "accuracy": valid_acc_meter.avg,
+                }
+
+                logger.log_metrics(iteration, metrics)
+
+            iteration += 1
+            if iteration >= args.iterations:
+                break
+
+        epoch += 1
+
+        if converged:
+            break
+
+    return run_folder
 
 
 if __name__ == "__main__":
-    main(sys.argv[1:])
+    baseline(sys.argv[1:])

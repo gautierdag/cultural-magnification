@@ -122,14 +122,14 @@ def get_filename(params):
 
     if params.name:
         return params.name
-    name = params.model_type
+    name = "lstm"  # params.model_type
     name += "_h_{}".format(params.hidden_size)
     name += "_lr_{}".format(params.lr)
     name += "_iters_{}".format(params.iterations)
     name += "_max_len_{}".format(params.max_length)
     name += "_vocab_{}".format(params.vocab_size)
     name += "_btch_size_{}".format(params.batch_size)
-    name += "_train_size_{}".format(params.train_size)
+
     if params.debugging:
         name += "_debug"
     return name
