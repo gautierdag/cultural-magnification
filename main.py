@@ -4,13 +4,13 @@ import torch
 import os
 import time
 
-from polybius.helpers.game_helper import get_trainer, get_training_data, get_meta_data
-from polybius.helpers.train_helper import TrainHelper
-from polybius.helpers.file_helper import FileHelper
-from polybius.utils.logger import Logger
+from sygnal.helpers.game_helper import get_trainer, get_training_data, get_meta_data
+from sygnal.helpers.train_helper import TrainHelper
+from sygnal.helpers.file_helper import FileHelper
+from sygnal.utils.logger import Logger
 
-from polybius.models import Sender, Receiver
-from polybius.data import AgentVocab
+from sygnal.models import Sender, Receiver
+from sygnal.data import AgentVocab
 
 from utils import get_filename
 
