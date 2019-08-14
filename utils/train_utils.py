@@ -3,10 +3,12 @@ import numpy as np
 import torch
 import pickle
 from torch.utils.data import random_split, DataLoader
+from torch.utils.data.sampler import BatchSampler
 from tqdm import tqdm
 from functools import partial
 import glob
 import os
+
 
 # Training and Evaluation helper functions
 
@@ -94,34 +96,41 @@ def infer_new_language(model, full_dataset, batch_size=64):
 # Folder and Dataset functions
 
 
-def split_dataset_into_dataloaders(dataset, batch_size=32, train_size=0.5):
+def split_dataset_into_dataloaders(dataset, sizes=[], batch_size=32, sampler=None):
     """
-    Splits a pytorch dataset into train, valid, and test dataloaders
+    Splits a pytorch dataset into different sizes of dataloaders
     """
+
     # 50 % of dataset used in train
-    train_length = int(train_size * len(dataset))
+    train_length = int(0.5 * len(dataset))
     # 10 % of dataset used in validation set
     valid_length = int(0.1 * len(dataset))
     # rest used in test set
     test_length = len(dataset) - train_length - valid_length
 
-    train_dataset, valid_dataset, test_dataset = random_split(
-        dataset, [train_length, valid_length, test_length]
-    )
-    train_dataloader = DataLoader(train_dataset, batch_size=batch_size)
-    valid_dataloader = DataLoader(valid_dataset, batch_size=batch_size)
-    test_dataloader = DataLoader(test_dataset, batch_size=batch_size)
+    if len(sizes) == 0:
+        sizes = [train_length, valid_length, test_length]
 
-    return train_dataloader, valid_dataloader, test_dataloader
+    datasets = random_split(dataset, sizes)
+
+    return (
+        DataLoader(
+            d,
+            batch_size=batch_size if sampler is None else False,
+            batch_sampler=BatchSampler(
+                sampler(d), batch_size=batch_size, drop_last=False
+            )
+            if sampler is not None
+            else False,
+        )
+        for d in datasets
+    )
 
 
 def get_filename(params):
     """
     Generates a filename from baseline params (see baseline.py)
     """
-
-    if params.name:
-        return params.name
     name = "lstm"  # params.model_type
     name += "_h_{}".format(params.hidden_size)
     name += "_lr_{}".format(params.lr)
@@ -178,3 +187,32 @@ def get_latest_language(path):
     language = torch.load(last_file)
     metrics = pickle.load(open(path + "/metrics.pkl", "rb"))
     return last_g + 1, language, metrics
+
+
+def save_model_state(model, model_path: str, epoch: int, iteration: int):
+    checkpoint_state = {}
+    if model.sender:
+        checkpoint_state["sender"] = model.sender.state_dict()
+    if model.receiver:
+        checkpoint_state["receiver"] = model.receiver.state_dict()
+    if epoch:
+        checkpoint_state["epoch"] = epoch
+    if iteration:
+        checkpoint_state["iteration"] = iteration
+
+    torch.save(checkpoint_state, model_path)
+
+
+def load_model_state(model, model_path):
+    if not os.path.isfile(model_path):
+        raise Exception(f'Model not found at "{model_path}"')
+    checkpoint = torch.load(model_path)
+    if "sender" in checkpoint.keys() and checkpoint["sender"]:
+        model.sender.load_state_dict(checkpoint["sender"])
+    if "receiver" in checkpoint.keys() and checkpoint["receiver"]:
+        model.receiver.load_state_dict(checkpoint["receiver"])
+    if "epoch" in checkpoint.keys() and checkpoint["epoch"]:
+        epoch = checkpoint["epoch"]
+    if "iteration" in checkpoint.keys() and checkpoint["iteration"]:
+        iteration = checkpoint["iteration"]
+    return epoch, iteration

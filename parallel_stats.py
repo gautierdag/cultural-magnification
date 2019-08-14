@@ -13,88 +13,45 @@ import scipy.spatial
 import scipy.stats
 import warnings
 
-meta = get_encoded_metadata(size=10000)
-meaning_space = np.unique(meta, axis=0)
-np.save("meaning_space.npy", meaning_space)
-metrics = {}
+
+def one_hot(a, ncols):
+    out = np.zeros((a.size, ncols), dtype=np.uint8)
+    out[np.arange(a.size), a.ravel()] = 1
+    out.shape = a.shape + (ncols,)
+    return out
 
 
-def get_run_name(n: str):
-    h = n.split("_")[2]
-    s = n.split("_")[-1]
-    i = n.split("_")[6]
-    return h + "_" + s + "_" + i
+def process_similarity(file: str, vocab_size=27):
+    representation = torch.load(open(file, "rb"))
+    dataset_length = representation.shape[0]
+    representation = representation.cpu().numpy()
 
-
-def complement_topo(compositional_representation, generated_sequences, vocab_size=27):
-    """
-    Calculates Topological Similarity using all possible pair combinations
-    Args:
-        compositional_representation (np.array): one-hot encoded compositional, size N*C
-        messages (torch.tensor): messages, size N*M
-    Returns:
-        topographical_similarity (float): correlation between similarity of pairs in representation/messages
-    """
-    dataset_length = compositional_representation.shape[0]
+    if "hidden" in file:
+        distance = scipy.spatial.distance.cosine
+    else:
+        representation = one_hot(representation - 1, vocab_size).reshape(
+            dataset_length, -1
+        )
+        distance = scipy.spatial.distance.hamming
 
     combinations = list(itertools.combinations(range(dataset_length), 2))
-
-    if hasattr(generated_sequences, "numpy"):
-        generated_sequences = generated_sequences.cpu().numpy()
-
     sim_representation = np.zeros(len(combinations))
-    sim_sequences = np.zeros(len(combinations))
 
     for i, c in enumerate(combinations):
         s1, s2 = c[0], c[1]
-        sim_representation[i] = scipy.spatial.distance.hamming(
-            compositional_representation[s1], compositional_representation[s2]
-        )
-        complement = (
-            vocab_size
-            - len(set(generated_sequences[s1]).union(set(generated_sequences[s2])))
-        ) / vocab_size
-        sim_sequences[i] = 1 - complement
+        sim_representation[i] = distance(representation[s1], representation[s2])
 
-    # check if standard deviation is not 0
-    if sim_sequences.std() == 0.0 or sim_representation.std() == 0.0:
-        warnings.warn("Standard deviation of 0.0 for passed parameter in custom_topo")
-        topographic_similarity = 0
-    else:
-        topographic_similarity = scipy.stats.pearsonr(
-            sim_sequences, sim_representation
-        )[0]
-
-    return topographic_similarity
-
-
-def process_language(language_path: str):
-    l = torch.load(open(language_path, "rb"))
-    return complement_topo(meaning_space, l)
+    new_file_name = file[:-2] + "_sim.npy"
+    np.save(new_file_name, sim_representation)
 
 
 if __name__ == "__main__":
-    folders = list(glob.glob("runs/*/*/"))
+    folders = list(glob.glob("runs/gru*0.7/*/"))
 
     # Loading metrics from saved pickles
     for folder in tqdm(folders):
-        run = folder.split("/")[1]
-        run_name = get_run_name(run)
-        if run_name not in metrics:
-            metrics[run_name] = {}
-        seed = folder.split("/")[2]
-        try:
-            metrics[run_name][seed] = pickle.load(open(folder + "metrics.pkl", "rb"))
-        except:
-            continue
-
-        languages = glob.glob(folder + "language_at_*")
+        languages = glob.glob(folder + "language_at_*.p")
+        hiddens = glob.glob(folder + "hidden_states_at_*.p")
+        files = languages + hiddens
         p = Pool(4)
-        custom_topos = p.map(process_language, languages)
-        for language, topo in zip(languages, custom_topos):
-            generation = int(language.split("_")[-1].split(".")[0])
-            metrics[run_name][seed][generation]["complement_topo"] = topo
-
-        # update pickle
-        pickle.dump(metrics[run_name][seed], open(folder + "metrics.pkl", "wb"))
-
+        p.map(process_similarity, files)

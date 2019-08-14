@@ -1,18 +1,16 @@
 import argparse
 import sys
 import torch
-import os
-import time
 
-from sygnal.helpers.game_helper import get_trainer, get_training_data, get_meta_data
+from utils import *
+from data import *
+
 from sygnal.helpers.train_helper import TrainHelper
-from sygnal.helpers.file_helper import FileHelper
+from sygnal.helpers.game_helper import get_trainer, get_training_data
 from sygnal.utils.logger import Logger
 
 from sygnal.models import Sender, Receiver
 from sygnal.data import AgentVocab
-
-from utils import get_filename
 
 
 def parse_arguments(args):
@@ -47,7 +45,7 @@ def parse_arguments(args):
     parser.add_argument(
         "--batch-size",
         type=int,
-        default=1024,
+        default=32,
         metavar="N",
         help="input batch size for training (default: 1024)",
     )
@@ -87,46 +85,6 @@ def parse_arguments(args):
         help="number of iterations between logs (default: 200)",
     )
     parser.add_argument(
-        "--sender-path",
-        type=str,
-        default=False,
-        metavar="S",
-        help="Sender to be loaded",
-    )
-    parser.add_argument(
-        "--receiver-path",
-        type=str,
-        default=False,
-        metavar="S",
-        help="Receiver to be loaded",
-    )
-    parser.add_argument(
-        "--name",
-        type=str,
-        default=False,
-        metavar="S",
-        help="Name to append to run file name",
-    )
-    parser.add_argument(
-        "--folder",
-        type=str,
-        default=False,
-        metavar="S",
-        help="Additional folder within runs/",
-    )
-    parser.add_argument("--disable-print", help="Disable printing", action="store_true")
-    parser.add_argument(
-        "--patience",
-        type=int,
-        default=10,
-        help="Amount of epochs to check for not improved validation score before early stopping",
-    )
-    parser.add_argument(
-        "--test-mode",
-        help="Only run the saved model on the test set",
-        action="store_true",
-    )
-    parser.add_argument(
         "--resume-training",
         help="Resume the training from the saved model state",
         action="store_true",
@@ -142,58 +100,20 @@ def parse_arguments(args):
     return args
 
 
-def save_model_state(
-    model, checkpoint_path: str, epoch: int, iteration: int, best_score: int
-):
-    checkpoint_state = {}
-    if model.sender:
-        checkpoint_state["sender"] = model.sender.state_dict()
-    if model.receiver:
-        checkpoint_state["receiver"] = model.receiver.state_dict()
-    if epoch:
-        checkpoint_state["epoch"] = epoch
-    if iteration:
-        checkpoint_state["iteration"] = iteration
-    if best_score:
-        checkpoint_state["best_score"] = best_score
-
-    torch.save(checkpoint_state, checkpoint_path)
-
-
-def load_model_state(model, model_path):
-    if not os.path.isfile(model_path):
-        raise Exception(f'Model not found at "{model_path}"')
-    checkpoint = torch.load(model_path)
-    if "sender" in checkpoint.keys() and checkpoint["sender"]:
-        model.sender.load_state_dict(checkpoint["sender"])
-    if "receiver" in checkpoint.keys() and checkpoint["receiver"]:
-        model.receiver.load_state_dict(checkpoint["receiver"])
-    best_score = -1.0
-    if "best_score" in checkpoint.keys() and checkpoint["best_score"]:
-        best_score = checkpoint["best_score"]
-    epoch = 0
-    if "epoch" in checkpoint.keys() and checkpoint["epoch"]:
-        epoch = checkpoint["epoch"]
-    iteration = 0
-    if "iteration" in checkpoint.keys() and checkpoint["iteration"]:
-        iteration = checkpoint["iteration"]
-    return epoch, iteration, best_score
-
-
 def baseline(args):
     args = parse_arguments(args)
     args.dataset_type = "meta"
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    file_helper = FileHelper()
     train_helper = TrainHelper(device)
-    train_helper.seed_torch(seed=args.seed)
 
+    seed_torch(seed=args.seed)
     model_name = get_filename(args)
-    run_folder = file_helper.get_run_folder(args.folder, model_name)
+    run_folder = "runs/" + model_name + "/" + str(args.seed)
+    model_path = run_folder + "/model.p"
 
-    logger = Logger(run_folder, print_logs=(not args.disable_print))
+    logger = Logger(run_folder, print_logs=True)
     logger.log_args(args)
 
     vocab = AgentVocab(args.vocab_size)
@@ -219,112 +139,62 @@ def baseline(args):
         output_size=15,
     )
 
-    sender_file = file_helper.get_sender_path(run_folder)
-    receiver_file = file_helper.get_receiver_path(run_folder)
-
-    if receiver:
-        torch.save(receiver, receiver_file)
-
     model = get_trainer(sender, device, "meta", receiver=receiver)
 
-    model_path = file_helper.create_unique_model_path(model_name)
+    epoch, iteration = 0, 0
 
-    best_accuracy = -1.0
-    epoch = 0
-    iteration = 0
+    if args.resume_training:
+        epoch, iteration = load_model_state(model, model_path)
+        print(f"Loaded model. Resuming from - epoch: {epoch} | iteration: {iteration}")
 
-    if args.resume_training or args.test_mode:
-        epoch, iteration, best_accuracy = load_model_state(model, model_path)
-        print(
-            f"Loaded model. Resuming from - epoch: {epoch} | iteration: {iteration} | best accuracy: {best_accuracy}"
-        )
+    # meta = get_encoded_metadata(size=1000)
+    # meaning_space = np.unique(meta, axis=0)
+    # dataset = ReferentialDataset(meaning_space.astype(np.float32))
+    # sampler = ReferentialSampler
+    # train_data, valid_data = split_dataset_into_dataloaders(
+    #     dataset, sizes=[100, 62], sampler=sampler
+    # )
 
-    if not os.path.exists(file_helper.model_checkpoint_path):
-        print("No checkpoint exists. Saving model...\r")
-        torch.save(model.visual_module, file_helper.model_checkpoint_path)
-        print("No checkpoint exists. Saving model...Done")
-
-    train_data, valid_data, test_data, valid_meta_data, _ = get_training_data(
+    train_data, valid_data, _, _, _ = get_training_data(
         device=device,
         batch_size=args.batch_size,
         k=3,
-        debugging=args.debugging,
         dataset_type="meta",
+        debugging=False,
     )
-
-    train_meta_data, valid_meta_data, test_meta_data = get_meta_data()
 
     pytorch_total_params = sum(p.numel() for p in model.parameters())
 
-    if not args.disable_print:
-        # Print info
-        print("----------------------------------------")
-        print(
-            "Model name: {} \n|V|: {}\nL: {}".format(
-                model_name, args.vocab_size, args.max_length
-            )
+    # Print info
+    print("----------------------------------------")
+    print(
+        "Model name: {} \n|V|: {}\nL: {}".format(
+            model_name, args.vocab_size, args.max_length
         )
-        print(sender)
-        if receiver:
-            print(receiver)
+    )
+    print(sender)
+    if receiver:
+        print(receiver)
 
-        print("Total number of parameters: {}".format(pytorch_total_params))
+    print("Total number of parameters: {}".format(pytorch_total_params))
 
     model.to(device)
 
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
 
     # Train
-    current_patience = args.patience
-    best_accuracy = -1.0
-    converged = False
-
-    start_time = time.time()
-
-    if args.test_mode:
-        test_loss_meter, test_acc_meter, _ = train_helper.evaluate(
-            model, test_data, test_meta_data, device, args.rl
-        )
-
-        average_test_accuracy = test_acc_meter.avg
-        average_test_loss = test_loss_meter.avg
-
-        print(
-            f"TEST results: loss: {average_test_loss} | accuracy: {average_test_accuracy}"
-        )
-        return
-
     while iteration < args.iterations:
         for train_batch in train_data:
-            print(f"{iteration}/{args.iterations}       \r", end="")
+            print(f"{iteration}/{args.iterations}\r", end="")
 
-            # !!! This is the complete training procedure. Rest is only logging!
-            _, _ = train_helper.train_one_batch(
-                model, train_batch, optimizer, train_meta_data, device
-            )
+            train_helper.train_one_batch(model, train_batch, optimizer, None, device)
 
             if iteration % args.log_interval == 0:
-                valid_loss_meter, valid_acc_meter, _, = train_helper.evaluate(
-                    model, valid_data, valid_meta_data, device, False
+                valid_loss_meter, valid_acc_meter, messages, = train_helper.evaluate(
+                    model, valid_data, None, device, False
                 )
-
-                new_best = False
-                average_valid_accuracy = valid_acc_meter.avg
-
-                if (
-                    average_valid_accuracy < best_accuracy
-                ):  # No new best found. May lead to early stopping
-                    current_patience -= 1
-
-                    if current_patience <= 0:
-                        print("Model has converged. Stopping training...")
-                        converged = True
-                        break
-                else:  # new best found. Is saved.
-                    new_best = True
-                    best_accuracy = average_valid_accuracy
-                    current_patience = args.patience
-                    save_model_state(model, model_path, epoch, iteration, best_accuracy)
+                save_model_state(model, model_path, epoch, iteration)
+                torch.save(messages, run_folder + "/messages_at_{}.p".format(iteration))
 
                 metrics = {
                     "loss": valid_loss_meter.avg,
@@ -338,9 +208,6 @@ def baseline(args):
                 break
 
         epoch += 1
-
-        if converged:
-            break
 
     return run_folder
 
